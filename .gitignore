@@ -1,0 +1,33 @@
+# Compiled class files
+*.class
+
+# IDE files
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+txn.log
+snapshot.dat
+
+# Environment
+.env
+*.swp
+*.swo
