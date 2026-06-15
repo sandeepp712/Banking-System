@@ -105,5 +105,9 @@ public final class Money{           //Class is immutable
         if(!(o instanceof Money money)) return false;
         return amount.compareTo(money.amount) == 0 && Objects.equals(currency, money.currency);
     }
+
+    public boolean isPositive() {
+        return this.amount.compareTo(BigDecimal.ZERO) > 0;
+    }
 }
 
