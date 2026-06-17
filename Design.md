@@ -66,3 +66,75 @@ The system represents all monetary amounts using an **immutable `Money` value ob
 - **No floating point** → eliminates precision loss.
 - **Currency mismatch detection** → prevents adding apples to oranges.
 - **Immutable** → supports rollback and concurrent reads without locks.
+
+
+## 3. Transaction Data Model & Lifecycle
+
+The system represents every financial transfer as an immutable `Transaction` record. This object captures the **intent** (what happened) and is completely decoupled from the execution logic (how it happens).
+
+### 3.1 Transaction Fields (Immutable Data)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `transactionId` | `String` | Unique primary identifier for the record. |
+| `idempotencyKey` | `String` | Client-provided or generated key used to safely retry operations without duplication. |
+| `fromAccountId` | `String` | Identifier of the source account. **Stored as ID, not a mutable object.** |
+| `toAccountId` | `String` | Identifier of the destination account. **Stored as ID, not a mutable object.** |
+| `amount` | `Money` | Immutable monetary value being transferred. |
+| `timestamp` | `Instant` | UTC timestamp of when the transaction record was created. |
+| `status` | `TransactionStatus` | Current lifecycle state (see 2.2). |
+
+**Why store Account IDs instead of Account objects?**
+- Ensures `Transaction` remains **truly immutable** (Account objects are mutable; their balances change over time).
+- Prevents the transaction record from becoming stale or corrupted due to later changes in account state.
+- Enforces **separation of concerns**: `Transaction` is data; `TransferService` holds the logic to look up current accounts and apply the change.
+
+### 3.2 Transaction Lifecycle (Statuses)
+
+Transactions follow a strict state machine to handle recovery, retries, and crash consistency:
+
+1. **PENDING**
+    - Initial state when the transaction is created but not yet applied to account balances.
+    - Used during recovery to identify which transactions were in-flight at the time of a crash.
+
+2. **COMMITTED**
+    - The transfer has been successfully applied to both accounts.
+    - Indempotency check: processing the same `idempotencyKey` again returns the existing result without re-applying.
+
+3. **FAILED**
+    - The transaction could not be applied (e.g., insufficient balance, limit breach, system error).
+    - Rollback is complete; no account changes occurred.
+
+**State Transition Rules:**
+- `PENDING` → `COMMITTED` (successful application)
+- `PENDING` → `FAILED` (application error or business rule violation)
+- No transitions from `COMMITTED` or `FAILED` (history is immutable).
+
+### 3.3 Idempotency (Deduplication)
+
+- Every transaction contains a unique `idempotencyKey`.
+- The system stores a mapping of `(idempotencyKey → transactionId/result)`.
+- On receiving a new request:
+    - If the key exists and status is `COMMITTED` → return success immediately (no-op).
+    - If the key exists and status is `FAILED` → return failure or retry (configurable).
+    - If the key does not exist → create a `PENDING` transaction and proceed.
+- This guarantees that **network retries or duplicate client submissions never cause double-debits**.
+
+### 3.4 Immutability & Construction
+
+- `Transaction` is a **final class** with all fields marked `final`.
+- No public setters exist. Status transitions (e.g., `PENDING` → `COMMITTED`) return a **new instance** of `Transaction` with the updated status, leaving the original record intact.
+- A **Builder pattern** is used for construction to handle optional fields (auto-generation of `transactionId`, `timestamp`, and `idempotencyKey` if not provided by the client).
+- This immutability guarantees thread-safety without locks and preserves a complete audit trail.
+
+### 3.5 Separation of Concerns
+
+| Component | Responsibility |
+|-----------|----------------|
+| `Transaction` (Data) | Immutable record of the transfer intent and outcome. |
+| `TransferService` (Logic) | Reads the transaction, looks up accounts by ID, applies the debit/credit, and updates the status to `COMMITTED` or `FAILED`. |
+| `AccountRepository` | Retrieves and persists mutable `Account` objects by ID. |
+
+The `Transaction` itself never references `Account` objects or contains business logic for applying the transfer. This makes the system easier to test, extend, and reason about.
+
+
