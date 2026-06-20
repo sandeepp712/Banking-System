@@ -137,4 +137,68 @@ Transactions follow a strict state machine to handle recovery, retries, and cras
 
 The `Transaction` itself never references `Account` objects or contains business logic for applying the transfer. This makes the system easier to test, extend, and reason about.
 
+## 4. Transfer Service (Orchestration Layer)
 
+The `TransferService` is the **single entry point** for moving money between two accounts. It is responsible for orchestrating the entire transfer process: fetching accounts, acquiring locks, applying debit/credit, and updating the transaction state.
+
+### 4.1 Core Invariants Enforced by the Service
+
+The `TransferService` must guarantee these non-negotiable rules:
+
+| Invariant | Description |
+|-----------|-------------|
+| **Atomicity** | Either both accounts are updated, or neither is. No partial updates. |
+| **Idempotency** | Processing the same `idempotencyKey` multiple times produces the same result (no double-debits). |
+| **No Deadlocks** | Concurrent transfers between the same two accounts in opposite directions must never freeze the system. |
+| **Money Conservation** | Total balance across all accounts remains constant before and after the transfer. |
+| **Status Integrity** | A `Transaction` is never left in `PENDING` after processing; it must be `COMMITTED` or `FAILED`. |
+
+---
+
+### 4.2 Service Design: Stateless & Thread-Safe
+
+- `TransferService` is **stateless** – it holds no instance fields (except possibly injected dependencies like `AccountRepository` and `TransactionRepository`).
+- A **single instance** of `TransferService` is shared across the entire application.
+- All data required for processing is passed via method parameters (e.g., `transfer(Transaction transaction)`).
+
+**Why stateless?**  
+Stateless services are inherently thread‑safe, easily testable, and can be scaled horizontally across multiple servers without session affinity.
+
+---
+
+### 4.3 Concurrency & Deadlock Prevention (Total Lock Ordering)
+
+To prevent the classic **circular wait** deadlock (Thread 1: lock A → wait for B; Thread 2: lock B → wait for A), the service enforces **Total Lock Ordering**:
+
+1. Extract `fromAccountId` and `toAccountId` from the `Transaction`.
+2. Fetch the actual `Account` objects from the repository.
+3. Add both accounts to a `List`.
+4. **Sort** the list by `accountNumber` (lexicographically).
+5. **Lock** the first account, then lock the second account.
+6. **Unlock** in reverse order (second account first, then first).
+
+**Why this works:**  
+All threads now request locks in the same global order. Circular wait becomes impossible because a thread waiting for a lock will never hold a lock that another thread needs to proceed.
+
+**Locking Code Pattern (Try-Finally):**
+```java
+// Sorting ensures deterministic order
+List<Account> accounts = Arrays.asList(from, to);
+accounts.sort(Comparator.comparing(Account::getAccountNumber));
+
+Account first = accounts.get(0);
+Account second = accounts.get(1);
+
+first.lock();
+try {
+    second.lock();
+    try {
+        // Business logic (debit/credit) using ORIGINAL variables
+        from.debit(amount);
+        to.credit(amount);
+    } finally {
+        second.unlock();
+    }
+} finally {
+    first.unlock();
+}

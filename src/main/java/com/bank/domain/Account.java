@@ -43,7 +43,7 @@ public final class Account {
 
             if (this.balance.subtract(amount).isNegative()) {
                 throw new InsufficientFundsException(
-                        "Cannot debit " + amount + ". Current balance: " + this.balance
+                        "Insufficient balance"
                 );
             }
 

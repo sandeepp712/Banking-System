@@ -78,7 +78,7 @@ public final class Transaction {
         private Money amount;
         private String transactionId;
         private Instant timestamp;
-        private String idempotencyKey;
+        public String idempotencyKey;
         private TransactionStatus status= TransactionStatus.PENDING;
 
         public Builder fromAccountId(String fromAccountId){this.fromAccountId=fromAccountId;return this;}
@@ -87,6 +87,7 @@ public final class Transaction {
         public Builder transactionId(String transactionId){this.transactionId=transactionId;return this;}
         public Builder timestamp(Instant timestamp){this.timestamp=timestamp;return this;}
         public Builder status(TransactionStatus status){this.status=status;return this;}
+        public Builder idempotencyKey(String key){this.idempotencyKey=key;return this;}
 
 
         //Auto generated transactionID and idempotencyKey if not provided
