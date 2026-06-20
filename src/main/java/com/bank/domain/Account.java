@@ -6,7 +6,7 @@ import com.bank.domain.Exceptions.InsufficientFundsException;
 import java.util.*;
 import java.util.concurrent.locks.ReentrantLock;
 
-final class Account {
+public final class Account {
     private final String accountNumber;
     private Money balance;
     private AccountStatus status;
@@ -18,6 +18,11 @@ final class Account {
 
     public Account(String accountNumber, Money initialbalance, List<Customer> owners) {
         this.accountNumber = Objects.requireNonNull(accountNumber, "account number cannot be null");
+
+        //Account should be positive balance
+        if(initialbalance.isNegative()){
+            throw new InsufficientFundsException("Initial balance cannot be negative");
+        }
         this.balance = Objects.requireNonNull(initialbalance, "amount cannot be null");
 
         this.status = AccountStatus.ACTIVE;
@@ -92,7 +97,7 @@ final class Account {
     public void close(){
         lock.lock();
         try {
-            if(!this.balance.isZero()){
+            if(!this.balance.isNegative()){
                 throw new AccountFrozenException("Can't close the account.");
             }
             this.status = AccountStatus.CLOSED;
@@ -139,18 +144,41 @@ final class Account {
     // --- Private Helpers ---
 
     private void validatePositiveAmount(Money amount) {
-        if (amount==null || amount.isNegative() || amount.isZero()) {
+        if (amount==null || amount.isNegative()) {
             throw new IllegalArgumentException("amount must be strictly be positive");
         }
     }
 
-    public void checkAccountIsActive() {
+    private void checkAccountIsActive() {
         if(this.status==AccountStatus.FROZEN){
             throw new AccountFrozenException("Transaction failed: Your "+ accountNumber +" is frozen.");
         }
         if(this.status==AccountStatus.CLOSED){
             throw new AccountFrozenException("Transaction failed: Your "+ accountNumber+" is closed.");
         }
+    }
+
+    /**
+     * Acquires the lock for this account.
+     * MUST be paired with unlock() in a finally block.
+     */
+    public void lock() {
+        this.lock.lock();
+    }
+
+    /**
+     * Releases the lock for this account.
+     */
+    public void unlock() {
+        this.lock.unlock();
+    }
+
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if(!(o instanceof Account account)) return false;
+        return accountNumber.equals(account.getAccountNumber());
     }
 
 }
