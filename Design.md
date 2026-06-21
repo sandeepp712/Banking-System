@@ -202,3 +202,24 @@ try {
 } finally {
     first.unlock();
 }
+```
+
+## 6. Service Layer
+
+### 6.1 AccountService
+
+`AccountService` handles all operations that involve a single account: deposit, withdrawal, and balance inquiry. It relies on the account’s internal `ReentrantLock` for concurrency control and on `AccountRepository` for storage access.
+
+**Responsibilities:**
+- Fetch an account from the repository.
+- Execute business logic (credit/debit) while the account’s lock is held.
+- Persist the updated account state via the repository.
+- (Optional) Record the transaction in the write‑ahead log for crash recovery.
+- Return the result of the operation to the caller.
+
+**Design Decisions:**
+- The service does **not** hold any locks itself. All mutual exclusion is provided by the account object.
+- The service depends on the `AccountRepository` interface (dependency inversion), making it easy to swap storage implementations or mock in tests.
+- For idempotent operations, the service checks a transaction log or an in‑memory map of processed idempotency keys before executing the operation (similar to the transfer idempotency flow).
+
+

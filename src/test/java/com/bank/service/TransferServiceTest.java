@@ -1,14 +1,15 @@
 package com.bank.service;
 
-import com.bank.domain.Account;
-import com.bank.domain.Customer;
-import com.bank.domain.Money;
+import com.bank.domain.*;
+import com.bank.persistence.InMemoryAccountRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.util.Currency;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -17,43 +18,62 @@ import static org.junit.jupiter.api.Assertions.*;
 
 public class TransferServiceTest {
 
+    private TransferService transferService;
+    private AccountRepository repository;
+    private Currency usd;
+
+    @BeforeEach
+    void setUp() {
+        repository = new InMemoryAccountRepository();
+        transferService = new TransferService(repository); // ✅ Inject repository
+        usd = Currency.getInstance("USD");
+
+        // Setup standard accounts for testing
+        repository.save(new Account("Acc-1", Money.of(new BigDecimal("1000.00"), usd), List.of(new Customer("Amar"))));
+        repository.save(new Account("Acc-2", Money.of(new BigDecimal("1000.00"), usd), List.of(new Customer("Vijay"))));
+    }
+
     @Test
     @DisplayName("Transfer amount a to b")
     void transferAmountAToB() {
-        Currency currency = Currency.getInstance("USD");
-        Money money = Money.of(new BigDecimal("100.00"), currency);
+        Money toTransfer = Money.of(new BigDecimal("10.00"), usd);
+        String idempotencyKey = UUID.randomUUID().toString();
 
-        Account account1 = new Account("Acc-1", money, List.of(new Customer("Amar")));
-        Account account2 = new Account("Acc-2", money, List.of(new Customer("Vijay")));
+        // transfer a to b when
+        Transaction tx=transferService.transfer("Acc-1","Acc-2",toTransfer,idempotencyKey);
 
-        Money toTransfer = Money.of(new BigDecimal("10.00"), currency);
+        //Then
+        assertEquals("Acc-1",tx.getFromAccountId());
+        assertEquals("Acc-2",tx.getToAccountId());
+        assertEquals(TransactionStatus.COMMITTED,tx.getStatus());
 
-        TransferService transferService = new TransferService();
-        transferService.transfer(account1, account2, toTransfer);
 
-        Money expected = Money.of(new BigDecimal("110.00"), currency);
-        assertEquals(expected, account2.getBalance());
+        //verify balance
+        assertEquals(Money.of(new BigDecimal("990.00"),usd),repository.findByAccountNumber("Acc-1").get().getBalance());
+        assertEquals(Money.of(new BigDecimal("1010.00"),usd),repository.findByAccountNumber("Acc-2").get().getBalance());
+    }
+
+    @Test
+    @DisplayName("Transfer fails if source account does not exist")
+    void transferFailsIfSourceAccountDoesNotExist() {
+        Money toTransfer = Money.of(new BigDecimal("10.00"), usd);
+        String idempotencyKey = UUID.randomUUID().toString();
+
+        assertThrows(IllegalArgumentException.class, () -> transferService.transfer("Fake-1","Acc-2",toTransfer,idempotencyKey));
     }
 
 
     @Test
     @DisplayName("Concurrent transfer must not be in deadlock")
     void concurrentTransferMustNotBeInDeadlock() throws InterruptedException {
-        Currency currency = Currency.getInstance("USD");
-        Money money = Money.of(new BigDecimal("1000.00"), currency);
-
-        Account account1 = new Account("Acc-1", money, List.of(new Customer("Amar")));
-        Account account2 = new Account("Acc-2", money, List.of(new Customer("Vijay")));
-
-        Money totalBefore = account1.getBalance()
-                .add(account2.getBalance());
-
-        Money toTransfer = Money.of(new BigDecimal("10.00"), currency);
+        Money toTransfer = Money.of(new BigDecimal("10.00"), usd);
+        Money totalBefore=repository.findByAccountNumber("Acc-1").get().getBalance()
+                .add(repository.findByAccountNumber("Acc-2").get().getBalance());
 
         int numofThreads = 40;
         int transfersPerThread = 10;
-        TransferService transferService = new TransferService();
 
+        //Executor service
         ExecutorService executor = Executors.newFixedThreadPool(numofThreads);
 
         CountDownLatch readyLatch = new CountDownLatch(1);
@@ -67,9 +87,9 @@ public class TransferServiceTest {
                     for (int j = 0; j < transfersPerThread; j++) {
                         if (direction) {
                             // This is the DEADLOCK TRAP: A->B and B->A happening simultaneously
-                            transferService.transfer(account1, account2, toTransfer);
+                            transferService.transfer("Acc-1","Acc-2",toTransfer,UUID.randomUUID().toString());
                         } else {
-                            transferService.transfer(account2, account1, toTransfer);
+                            transferService.transfer("Acc-2","Acc-1",toTransfer,UUID.randomUUID().toString());
                         }
                     }
                 } catch (Exception e) {
@@ -85,7 +105,8 @@ public class TransferServiceTest {
 
         executor.shutdown();
 
-        Money totalAfter = account1.getBalance().add(account2.getBalance());
+        Money totalAfter = repository.findByAccountNumber("Acc-1").get().getBalance()
+                .add(repository.findByAccountNumber("Acc-2").get().getBalance());
 
         assertEquals(totalAfter, totalBefore);
     }
