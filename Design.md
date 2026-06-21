@@ -223,3 +223,67 @@ try {
 - For idempotent operations, the service checks a transaction log or an in‑memory map of processed idempotency keys before executing the operation (similar to the transfer idempotency flow).
 
 
+
+## 5. Persistence Strategy (Write‑Ahead Log)
+
+### 5.1 Crash Recovery Protocol (PENDING vs COMMITTED)
+
+Every state‑changing operation follows a strict Write‑Ahead Log protocol to guarantee crash consistency.
+
+**Normal operation sequence:**
+
+1. **Write PENDING log entry**  
+   Create an immutable `Transaction` with `status = PENDING`. Append it to the transaction log file and force the write to disk (`flush`/`fsync`).
+
+2. **Apply to memory**  
+   Update the in‑memory `Account` objects (`debit`/`credit`). This happens **only after** the durable log write.
+
+3. **Write COMMITTED marker**  
+   Append a second log entry (or rewrite the existing one) with `status = COMMITTED`. This confirms the operation is durable and fully applied.
+
+**Recovery on restart:**
+
+- Load the latest snapshot (if available) to get the last known good state of all accounts.
+- Read the transaction log from the point after the snapshot.
+- For each entry:
+    - If `status == COMMITTED` → replay the transaction against the loaded accounts.
+    - If `status == PENDING` → **ignore it**. The operation was interrupted before the commit marker; it never officially happened.
+- After replay, memory is consistent with all committed operations.
+
+**Why this works:**
+
+| Crash point | Log state | Memory state | Recovery action |
+|-------------|-----------|--------------|-----------------|
+| Before step 1 | Nothing written | Unchanged | Nothing to recover; consistent |
+| After step 1, before step 2 | PENDING written | Unchanged | Ignore PENDING |
+| After step 2, before step 3 | PENDING written | Updated (lost) | Ignore PENDING; transaction discarded as never committed |
+| After step 3 | COMMITTED written | Updated (lost) | Replay COMMITTED transaction |
+
+**Checkpointing:**  
+Periodically save a snapshot of all account states (`snapshot.dat`). On restart, load the latest snapshot, then replay only the log entries after its timestamp. This prevents unbounded log replay time.
+
+---
+
+### 5.2 TransactionLogger (Write‑Ahead Log Implementation)
+
+The `TransactionLogger` is the core persistence component. It lives in the **`persistence`** package because it performs file I/O — a classic infrastructure concern. This follows the Dependency Rule: the domain and service layers never touch file operations directly.
+
+**Architecture:**
+- **Dedicated writer thread:** A single‑threaded `ExecutorService` owns the log file. No other thread ever writes to it.
+- **Producer‑consumer pattern:** All service threads submit `Transaction` objects to a thread‑safe `BlockingQueue<Transaction>`. The writer thread consumes from the queue and writes entries sequentially.
+- **No file‑level lock:** The single writer thread eliminates the need for a `ReentrantLock` on the file; serialisation is achieved via the queue.
+
+**Key methods:**
+
+```java
+public class TransactionLogger {
+    private final BlockingQueue<Transaction> queue;
+    private final Path logFilePath;
+    private final ExecutorService writerExecutor;
+    private volatile boolean running;
+
+    public TransactionLogger(String logFilePath) throws IOException { … }
+    public void logTransaction(Transaction tx) throws InterruptedException { … }
+    private void writeLoop() { … }   // consumes from queue, writes JSON line, flushes
+    public void shutdown() throws InterruptedException { … }
+}

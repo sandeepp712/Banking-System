@@ -61,7 +61,7 @@ public class TransactionLogger{
                 tx.getTransactionId(),
                 tx.getFromAccountId(),
                 tx.getToAccountId(),
-                tx.getAmount(),
+                tx.getAmount().getAmount().toPlainString(),
                 tx.getStatus(),
                 tx.getTimestamp()
         );
