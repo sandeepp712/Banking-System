@@ -2,10 +2,12 @@ package com.bank.service;
 
 import com.bank.domain.*;
 import com.bank.persistence.InMemoryAccountRepository;
+import com.bank.persistence.TransactionLogger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.Currency;
 import java.util.List;
@@ -22,10 +24,12 @@ public class TransferServiceTest {
     private AccountRepository repository;
     private Currency usd;
 
+
     @BeforeEach
-    void setUp() {
+    void setUp() throws IOException {
         repository = new InMemoryAccountRepository();
-        transferService = new TransferService(repository); // ✅ Inject repository
+        TransactionLogger logger=new TransactionLogger("data/transaction.log");
+        transferService = new TransferService(repository,logger); // ✅ Inject repository
         usd = Currency.getInstance("USD");
 
         // Setup standard accounts for testing

@@ -1,6 +1,7 @@
 package com.bank.service;
 
 import com.bank.domain.*;
+import com.bank.persistence.TransactionLogger;
 
 import java.util.Arrays;
 import java.util.Comparator;
@@ -10,12 +11,14 @@ import java.util.Objects;
 
 public class TransferService {
     private final AccountRepository accountRepository;
+    private final TransactionLogger logger;
 
-    public TransferService(AccountRepository accountRepository) {
+    public TransferService(AccountRepository accountRepository, TransactionLogger logger) {
         this.accountRepository = accountRepository;
+        this.logger = logger;
     }
 
-    public Transaction transfer(String fromId, String toId, Money amount, String idempotencyKey) {
+    public Transaction transfer(String fromId, String toId, Money amount, String idempotencyKey) throws Exception {
 
         Objects.requireNonNull(amount);
         if (amount.isNegative() || amount.isZero()) {
@@ -52,19 +55,28 @@ public class TransferService {
 
                 accountRepository.save(firstAccount);
                 accountRepository.save(secondAccount);
-            } finally {
+            }finally {
                 secondAccount.unlock();
             }
         } finally {
             firstAccount.unlock();
         }
 
-        return Transaction.builder()
+        Transaction tx = Transaction.builder()
                 .idempotencyKey(idempotencyKey)
                 .fromAccountId(fromId)
                 .toAccountId(toId)
                 .amount(amount)
                 .status(TransactionStatus.COMMITTED)
                 .build();
+
+        try {
+            logger.logTransaction(tx);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Deposit succeeded, but logging failed due to system interruption.", e);
+        }
+
+        return tx;
     }
 }
