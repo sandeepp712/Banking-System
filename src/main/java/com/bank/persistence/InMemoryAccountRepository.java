@@ -3,6 +3,7 @@ package com.bank.persistence;
 import com.bank.domain.Account;
 import com.bank.domain.AccountRepository;
 
+import java.util.Collection;
 import java.util.Optional;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -18,5 +19,10 @@ public class InMemoryAccountRepository implements AccountRepository{
     @Override
     public Optional<Account> findByAccountNumber(String accountNumber) {
         return Optional.ofNullable(accounts.get(accountNumber));
+    }
+
+    @Override
+    public Collection<Account> findAll() {
+        return accounts.values();
     }
 }

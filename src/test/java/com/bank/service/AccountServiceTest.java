@@ -3,10 +3,12 @@ package com.bank.service;
 import com.bank.domain.*;
 import com.bank.domain.Exceptions.InsufficientFundsException;
 import com.bank.persistence.InMemoryAccountRepository;
+import com.bank.persistence.TransactionLogger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Currency;
@@ -22,9 +24,10 @@ public class AccountServiceTest {
     private List<Customer> owners;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws IOException {
         accountRepository = new InMemoryAccountRepository();
-        accountService = new AccountService(accountRepository);
+        TransactionLogger logger=new TransactionLogger("data/transaction.log");
+        accountService = new AccountService(accountRepository,logger);
         usd = Currency.getInstance("USD");
         owners = List.of(new Customer("TestUser"));
     }

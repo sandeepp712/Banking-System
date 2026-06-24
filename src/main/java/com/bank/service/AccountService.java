@@ -1,18 +1,23 @@
 package com.bank.service;
 
 import com.bank.domain.*;
+import com.bank.persistence.TransactionLogger;
 
+import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.time.Instant;
 
 public class AccountService {
     private final AccountRepository accountRepository;
+    private final TransactionLogger logger;
 
     public static final String SYSTEM_ACCOUNT = "SYSTEM";
 
-    public AccountService(AccountRepository accountRepository) {
+    public AccountService(AccountRepository accountRepository, TransactionLogger logger) {
         this.accountRepository = accountRepository;
+        this.logger = logger;
     }
 
     /**
@@ -33,6 +38,11 @@ public class AccountService {
         return accountRepository.findByAccountNumber(id).orElseThrow(() -> new IllegalArgumentException("Account not found : " + id));
     }
 
+    public Collection<Account> getAllAccounts() {
+        return accountRepository.findAll();
+    }
+
+
     /**
      * Deposits money into an account.
      *
@@ -46,7 +56,8 @@ public class AccountService {
         account.credit(amount);
         accountRepository.save(account);
 
-        return Transaction.builder()
+
+        Transaction tx = Transaction.builder()
                 .fromAccountId(SYSTEM_ACCOUNT)
                 .toAccountId(accountNumber)
                 .amount(amount)
@@ -54,6 +65,14 @@ public class AccountService {
                 .idempotencyKey(idempotencyKey)
                 .build();
 
+        try {
+            logger.logTransaction(tx);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Deposit succeeded, but logging failed due to system interruption.", e);
+        }
+
+        return tx;
     }
 
     /**
@@ -67,15 +86,25 @@ public class AccountService {
                 .orElseThrow(() -> new IllegalArgumentException("Account not found : " + accountNumber));
 
         account.debit(amount);
+
         accountRepository.save(account);
 
-        return Transaction.builder()
-                .idempotencyKey(idempotencyKey)
-                .fromAccountId(accountNumber)
-                .toAccountId(AccountService.SYSTEM_ACCOUNT)
+        Transaction tx = Transaction.builder()
+                .fromAccountId(SYSTEM_ACCOUNT)
+                .toAccountId(accountNumber)
                 .amount(amount)
                 .status(TransactionStatus.COMMITTED)
+                .idempotencyKey(idempotencyKey)
                 .build();
+
+        try {
+            logger.logTransaction(tx);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Deposit succeeded, but logging failed due to system interruption.", e);
+        }
+
+        return tx;
     }
 
 }

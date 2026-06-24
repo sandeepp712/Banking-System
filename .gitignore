@@ -26,6 +26,7 @@ Thumbs.db
 *.log
 txn.log
 snapshot.dat
+data/transactions.log
 
 # Environment
 .env
