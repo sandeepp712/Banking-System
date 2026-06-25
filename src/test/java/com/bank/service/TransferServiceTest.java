@@ -39,7 +39,7 @@ public class TransferServiceTest {
 
     @Test
     @DisplayName("Transfer amount a to b")
-    void transferAmountAToB() {
+    void transferAmountAToB() throws Exception {
         Money toTransfer = Money.of(new BigDecimal("10.00"), usd);
         String idempotencyKey = UUID.randomUUID().toString();
 
