@@ -11,7 +11,7 @@ public final class Account {
     private Money balance;
     private AccountStatus status;
     private final List<Customer> owners;
-    private static final String ALPHABET_ONLY_REGEX = "^[a-zA-Z]+$";
+//    private static final String ALPHABET_ONLY_REGEX = "^[a-zA-Z]+$";
 
     //Concurrency primitive
     private final ReentrantLock lock;
@@ -19,9 +19,9 @@ public final class Account {
 
     public Account(String accountNumber, Money initialbalance, List<Customer> owners) {
         this.accountNumber = Objects.requireNonNull(accountNumber, "account number cannot be null");
-        if(!accountNumber.matches(ALPHABET_ONLY_REGEX)) {
-            throw new IllegalArgumentException("Invalid account number '" + accountNumber + "'. It must contain letters only!");
-        };
+//        if(!accountNumber.matches(ALPHABET_ONLY_REGEX)) {
+//            throw new IllegalArgumentException("Invalid account number '" + accountNumber + "'. It must contain letters only!");
+//        };
 
         //Account should be positive balance
         if(initialbalance.isNegative()){

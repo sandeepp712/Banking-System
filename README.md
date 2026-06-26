@@ -175,7 +175,7 @@ BlockingQueue<Transaction> queue = new LinkedBlockingQueue<>();
 while (running) {
     Transaction tx = queue.take();
     writer.write(toJson(tx));
-}
+}   
 ```
 
 ### 🛡️ Thread Safety Guarantees
