@@ -3,6 +3,7 @@ package com.bank.service;
 import com.bank.domain.*;
 import com.bank.persistence.InMemoryAccountRepository;
 import com.bank.persistence.TransactionLogger;
+import com.bank.service.Exceptions.DuplicateTransactionException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -23,13 +24,18 @@ public class TransferServiceTest {
     private TransferService transferService;
     private AccountRepository repository;
     private Currency usd;
+    private IdempotencyService idempotencyService;
 
 
     @BeforeEach
     void setUp() throws IOException {
         repository = new InMemoryAccountRepository();
-        TransactionLogger logger=new TransactionLogger("data/transaction.log");
-        transferService = new TransferService(repository,logger); // ✅ Inject repository
+        TransactionLogger logger = new TransactionLogger("data/transaction.log");
+        idempotencyService = new IdempotencyService();
+        idempotencyService.clear();
+
+
+        transferService = new TransferService(repository, logger, idempotencyService); // ✅ Inject repository
         usd = Currency.getInstance("USD");
 
         // Setup standard accounts for testing
@@ -44,17 +50,17 @@ public class TransferServiceTest {
         String idempotencyKey = UUID.randomUUID().toString();
 
         // transfer a to b when
-        Transaction tx=transferService.transfer("Acc-1","Acc-2",toTransfer,idempotencyKey);
+        Transaction tx = transferService.transfer("Acc-1", "Acc-2", toTransfer, idempotencyKey);
 
         //Then
-        assertEquals("Acc-1",tx.getFromAccountId());
-        assertEquals("Acc-2",tx.getToAccountId());
-        assertEquals(TransactionStatus.COMMITTED,tx.getStatus());
+        assertEquals("Acc-1", tx.getFromAccountId());
+        assertEquals("Acc-2", tx.getToAccountId());
+        assertEquals(TransactionStatus.COMMITTED, tx.getStatus());
 
 
         //verify balance
-        assertEquals(Money.of(new BigDecimal("990.00"),usd),repository.findByAccountNumber("Acc-1").get().getBalance());
-        assertEquals(Money.of(new BigDecimal("1010.00"),usd),repository.findByAccountNumber("Acc-2").get().getBalance());
+        assertEquals(Money.of(new BigDecimal("990.00"), usd), repository.findByAccountNumber("Acc-1").get().getBalance());
+        assertEquals(Money.of(new BigDecimal("1010.00"), usd), repository.findByAccountNumber("Acc-2").get().getBalance());
     }
 
     @Test
@@ -63,7 +69,7 @@ public class TransferServiceTest {
         Money toTransfer = Money.of(new BigDecimal("10.00"), usd);
         String idempotencyKey = UUID.randomUUID().toString();
 
-        assertThrows(IllegalArgumentException.class, () -> transferService.transfer("Fake-1","Acc-2",toTransfer,idempotencyKey));
+        assertThrows(IllegalArgumentException.class, () -> transferService.transfer("Fake-1", "Acc-2", toTransfer, idempotencyKey));
     }
 
 
@@ -71,7 +77,7 @@ public class TransferServiceTest {
     @DisplayName("Concurrent transfer must not be in deadlock")
     void concurrentTransferMustNotBeInDeadlock() throws InterruptedException {
         Money toTransfer = Money.of(new BigDecimal("10.00"), usd);
-        Money totalBefore=repository.findByAccountNumber("Acc-1").get().getBalance()
+        Money totalBefore = repository.findByAccountNumber("Acc-1").get().getBalance()
                 .add(repository.findByAccountNumber("Acc-2").get().getBalance());
 
         int numofThreads = 40;
@@ -91,9 +97,9 @@ public class TransferServiceTest {
                     for (int j = 0; j < transfersPerThread; j++) {
                         if (direction) {
                             // This is the DEADLOCK TRAP: A->B and B->A happening simultaneously
-                            transferService.transfer("Acc-1","Acc-2",toTransfer,UUID.randomUUID().toString());
+                            transferService.transfer("Acc-1", "Acc-2", toTransfer, UUID.randomUUID().toString());
                         } else {
-                            transferService.transfer("Acc-2","Acc-1",toTransfer,UUID.randomUUID().toString());
+                            transferService.transfer("Acc-2", "Acc-1", toTransfer, UUID.randomUUID().toString());
                         }
                     }
                 } catch (Exception e) {
@@ -113,6 +119,32 @@ public class TransferServiceTest {
                 .add(repository.findByAccountNumber("Acc-2").get().getBalance());
 
         assertEquals(totalAfter, totalBefore);
+    }
+
+
+    @Test
+    @DisplayName("Duplicate transfer with same idempotency key should be rejected")
+    void duplicateTransferWithSameIdempotencyKey() {
+        Money transferAmount = Money.of(new BigDecimal("100.00"), usd);
+        String key = UUID.randomUUID().toString();
+        System.out.println(key);
+
+        //When
+        Transaction first = transferService.transfer("Acc-1", "Acc-2", transferAmount, key);
+
+        // Then: The balances should update
+        assertEquals(Money.of(new BigDecimal("900.00"), usd), repository.findByAccountNumber("Acc-1").get().getBalance());
+        assertEquals(Money.of(new BigDecimal("1100.00"), usd), repository.findByAccountNumber("Acc-2").get().getBalance());
+
+        // When: We try to process the EXACT SAME transfer again (simulating a network retry)
+        // Then: It should throw DuplicateTransactionException and balances should NOT change again
+        assertThrows(DuplicateTransactionException.class, () -> {
+            transferService.transfer("Acc-1", "Acc-2", transferAmount, key);
+        });
+
+        // Then: The balances should update
+        assertEquals(Money.of(new BigDecimal("900.00"), usd), repository.findByAccountNumber("Acc-1").get().getBalance());
+        assertEquals(Money.of(new BigDecimal("1100.00"), usd), repository.findByAccountNumber("Acc-2").get().getBalance());
     }
 
 }

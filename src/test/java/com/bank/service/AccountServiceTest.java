@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.*;
 public class AccountServiceTest {
     private AccountService accountService;
     private AccountRepository accountRepository;
+    private IdempotencyService idempotencyService;
     private Currency usd;
     private List<Customer> owners;
 
@@ -27,7 +28,7 @@ public class AccountServiceTest {
     void setUp() throws IOException {
         accountRepository = new InMemoryAccountRepository();
         TransactionLogger logger=new TransactionLogger("data/transaction.log");
-        accountService = new AccountService(accountRepository,logger);
+        accountService = new AccountService(accountRepository,logger,idempotencyService);
         usd = Currency.getInstance("USD");
         owners = List.of(new Customer("TestUser"));
     }
