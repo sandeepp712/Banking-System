@@ -93,7 +93,6 @@ public final class Transaction {
         //Auto generated transactionID and idempotencyKey if not provided
         public Transaction build(){
             if(transactionId==null) transactionId=UUID.randomUUID().toString();
-            if(idempotencyKey==null) idempotencyKey=UUID.randomUUID().toString();
             if(timestamp==null) timestamp=Instant.now();
             return new Transaction(fromAccountId,toAccountId,amount,transactionId,timestamp,status,idempotencyKey);
         }
@@ -120,6 +119,7 @@ public final class Transaction {
                 " -> to=" + toAccountId +
                 ", amount=" + amount +
                 ", status=" + status +
+                ", idempotencyKey='" + idempotencyKey +
                 '}';
     }
 

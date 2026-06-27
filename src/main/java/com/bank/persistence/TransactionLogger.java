@@ -57,12 +57,13 @@ public class TransactionLogger{
     // Simple JSON serialization (in production, use Jackson/Gson)
     private String toJson(Transaction tx) {
         return String.format(
-                "{\"id\":\"%s\",\"from\":\"%s\",\"to\":\"%s\",\"amount\":\"%s\",\"status\":\"%s\",\"timestamp\":\"%s\"}",
+                "{\"transaction_id\":\"%s\",\"from\":\"%s\",\"to\":\"%s\",\"amount\":\"%s\",\"status\":\"%s\",\"key\":\"%s\",\"timestamp\":\"%s\"}",
                 tx.getTransactionId(),
                 tx.getFromAccountId(),
                 tx.getToAccountId(),
                 tx.getAmount().getAmount().toPlainString(),
                 tx.getStatus(),
+                tx.getIdempotencyKey(),
                 tx.getTimestamp()
         );
     }

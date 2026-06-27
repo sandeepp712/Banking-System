@@ -2,6 +2,7 @@ package com.bank.service;
 
 import com.bank.domain.*;
 import com.bank.persistence.TransactionLogger;
+import com.bank.service.Exceptions.DuplicateTransactionException;
 
 import java.util.Collection;
 import java.util.List;
@@ -12,12 +13,14 @@ import java.time.Instant;
 public class AccountService {
     private final AccountRepository accountRepository;
     private final TransactionLogger logger;
+    private final IdempotencyService idempotencyService;
 
     public static final String SYSTEM_ACCOUNT = "SYSTEM";
 
-    public AccountService(AccountRepository accountRepository, TransactionLogger logger) {
+    public AccountService(AccountRepository accountRepository, TransactionLogger logger,IdempotencyService idempotencyService) {
         this.accountRepository = accountRepository;
         this.logger = logger;
+        this.idempotencyService = idempotencyService;
     }
 
     /**
@@ -34,10 +37,19 @@ public class AccountService {
         return account;
     }
 
+    /**
+     * To get the particular account is present or not
+     * @param id
+     * @return
+     */
     public Account getAccount(String id) {
         return accountRepository.findByAccountNumber(id).orElseThrow(() -> new IllegalArgumentException("Account not found : " + id));
     }
 
+    /**
+     * To return all account
+     * @return
+     */
     public Collection<Account> getAllAccounts() {
         return accountRepository.findAll();
     }
@@ -45,16 +57,20 @@ public class AccountService {
 
     /**
      * Deposits money into an account.
-     *
      * @return The Transaction record representing this deposit.
      */
     public Transaction deposit(String accountNumber, Money amount, String idempotencyKey) {
+        if(idempotencyService.isAlreadyProcessed(idempotencyKey)){
+            throw new DuplicateTransactionException("Transaction already processed :" + idempotencyKey);
+        }
+
         Account account = accountRepository.findByAccountNumber(accountNumber)
                 .orElseThrow(() -> new IllegalArgumentException("Account not found : " + accountNumber));
 
         //Apply the credit to self account
         account.credit(amount);
         accountRepository.save(account);
+        idempotencyService.markAsProcessed(idempotencyKey);
 
 
         Transaction tx = Transaction.builder()
@@ -82,12 +98,17 @@ public class AccountService {
      */
     public Transaction withdraw(String accountNumber, Money amount, String idempotencyKey) {
 
+        if(idempotencyService.isAlreadyProcessed(idempotencyKey)){
+            throw new DuplicateTransactionException("Transaction already processed :" + idempotencyKey);
+        }
+
         Account account = accountRepository.findByAccountNumber(accountNumber)
                 .orElseThrow(() -> new IllegalArgumentException("Account not found : " + accountNumber));
 
         account.debit(amount);
 
         accountRepository.save(account);
+        idempotencyService.markAsProcessed(idempotencyKey);
 
         Transaction tx = Transaction.builder()
                 .fromAccountId(SYSTEM_ACCOUNT)
