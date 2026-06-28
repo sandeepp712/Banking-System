@@ -39,8 +39,8 @@ public class TransferServiceTest {
         usd = Currency.getInstance("USD");
 
         // Setup standard accounts for testing
-        repository.save(new Account("Acc-1", Money.of(new BigDecimal("1000.00"), usd), List.of(new Customer("Amar"))));
-        repository.save(new Account("Acc-2", Money.of(new BigDecimal("1000.00"), usd), List.of(new Customer("Vijay"))));
+        repository.save(new CheckingAccount("Acc-1", Money.of(new BigDecimal("1000.00"), usd), List.of(new Customer("Amar"))));
+        repository.save(new CheckingAccount("Acc-2", Money.of(new BigDecimal("1000.00"), usd), List.of(new Customer("Vijay"))));
     }
 
     @Test

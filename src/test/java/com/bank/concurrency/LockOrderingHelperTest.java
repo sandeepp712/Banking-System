@@ -2,6 +2,7 @@ package com.bank.concurrency;
 
 
 import com.bank.domain.Account;
+import com.bank.domain.CheckingAccount;
 import com.bank.domain.Money;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -27,9 +28,9 @@ public class LockOrderingHelperTest {
     @Test
     @DisplayName("Sort the account Number lexicographical")
     void sortAccountNumberLexicographical() {
-        Account firstAccount = new Account("Acc-1", amount, new ArrayList<>());
-        Account secondAccount = new Account("Acc-3", amount, new ArrayList<>());
-        Account thirdAccount = new Account("Acc-2", amount, new ArrayList<>());
+        Account firstAccount = new CheckingAccount("Acc-1", amount, new ArrayList<>());
+        Account secondAccount = new CheckingAccount("Acc-3", amount, new ArrayList<>());
+        Account thirdAccount = new CheckingAccount("Acc-2", amount, new ArrayList<>());
 
         //when
         List<Account> orderList = LockOrderingHelper.getOrderedAccounts(firstAccount, secondAccount, thirdAccount);
@@ -43,7 +44,7 @@ public class LockOrderingHelperTest {
     @Test
     @DisplayName("Passing null argument in lock order should throw NullPointerException")
     void passNullArgumentInLockOrder() {
-        Account validAccount = new Account("Acc-1", amount, new ArrayList<>());
+        Account validAccount = new CheckingAccount("Acc-1", amount, new ArrayList<>());
         // Test null array
         assertThrows(NullPointerException.class,
                 () -> LockOrderingHelper.getOrderedAccounts((Account[]) null),
@@ -76,8 +77,8 @@ public class LockOrderingHelperTest {
     @DisplayName("Sorting should not modify original array")
     void sortingShouldNotModifyOriginalArray() {
         // Given
-        Account firstAccount = new Account("Acc-5", amount, new ArrayList<>());
-        Account secondAccount = new Account("Acc-1", amount, new ArrayList<>());
+        Account firstAccount = new CheckingAccount("Acc-5", amount, new ArrayList<>());
+        Account secondAccount = new CheckingAccount("Acc-1", amount, new ArrayList<>());
         Account[] originalArray = {firstAccount, secondAccount};
 
         // When

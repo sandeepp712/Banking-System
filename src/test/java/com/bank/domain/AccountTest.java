@@ -1,6 +1,7 @@
 package com.bank.domain;
 
 import com.bank.domain.Exceptions.AccountFrozenException;
+import com.bank.domain.Exceptions.DailyLimitExceededException;
 import com.bank.domain.Exceptions.InsufficientFundsException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
@@ -19,13 +20,13 @@ public class AccountTest {
     @DisplayName("Debit subtracts the specified amount from the account balance")
     void testDebitAmount() {
         //Setup: 1 Account with $1000
-        Currency currency = Currency.getInstance("USD");
+        Currency currency = Currency.getInstance("INR");
         Money initialBalance = Money.of(new BigDecimal("500.00"), currency);
         List<Customer> owners = List.of(
                 new Customer("Amar")
         );
 
-        Account account = new Account("Acc-1", initialBalance, owners);
+        Account account = new CheckingAccount("Acc-1", initialBalance, owners);
         Money ToDebit = Money.of(new BigDecimal("50.00"), currency);
 
         account.debit(ToDebit);
@@ -40,12 +41,12 @@ public class AccountTest {
     @Test
     @DisplayName("Credit balance to a sing;e account.")
     void testCreditBalance() {
-        Currency currency = Currency.getInstance("USD");
+        Currency currency = Currency.getInstance("INR");
         Money initialBalance = Money.of(new BigDecimal("10.00"), currency);
         List<Customer> owners = List.of(
                 new Customer("Tarun")
         );
-        Account account = new Account("Acc-1", initialBalance, owners);
+        Account account = new CheckingAccount("Acc-1", initialBalance, owners);
 
         Money ToCredit = Money.of(new BigDecimal("500.00"), currency);
 
@@ -56,32 +57,32 @@ public class AccountTest {
         assertEquals(expectedBalance, account.getBalance());
     }
 
-        @Test
-        @DisplayName("Check the validation to debit from low balance account")
-        void testDebitAmountLowBalance() {
-            Currency currency = Currency.getInstance("USD");
-            Money initialBalance = Money.of(new BigDecimal("500.00"), currency);
-            List<Customer> owners = List.of(
-                    new Customer("Tarun")
-            );
-            Money ToDebit = Money.of(new BigDecimal("1000.00"), currency);
+    @Test
+    @DisplayName("Check the validation to debit from low balance account")
+    void testDebitAmountLowBalance() {
+        Currency currency = Currency.getInstance("INR");
+        Money initialBalance = Money.of(new BigDecimal("500.00"), currency);
+        List<Customer> owners = List.of(
+                new Customer("Tarun")
+        );
+        Money ToDebit = Money.of(new BigDecimal("1000.00"), currency);
 
-            Account account = new Account("Acc-3", initialBalance, owners);
+        Account account = new CheckingAccount("Acc-3", initialBalance, owners);
 
-            assertThrows(InsufficientFundsException.class, () -> account.debit(ToDebit),"Insufficient funds in the your account no."+account.getAccountNumber());
-            assertEquals(initialBalance, account.getBalance(), "Balance should remain unchanged after failed debit.");
-        }
+        assertThrows(InsufficientFundsException.class, () -> account.debit(ToDebit), "Insufficient funds in the your account no." + account.getAccountNumber());
+        assertEquals(initialBalance, account.getBalance(), "Balance should remain unchanged after failed debit.");
+    }
 
     @Test
     @DisplayName("Debit fails with AccountFrozenException when account is frozen")
     void testDebitFailsWhenAccountFrozen() {
-        Currency currency = Currency.getInstance("USD");
+        Currency currency = Currency.getInstance("INR");
         Money initialBalance = Money.of(new BigDecimal("500.00"), currency);
         List<Customer> owners = List.of(
                 new Customer("Tarun")
         );
 
-        Account account = new Account("Acc-1", initialBalance, owners);
+        Account account = new CheckingAccount("Acc-1", initialBalance, owners);
         account.freeze();
 
         //Money to debit from account
@@ -93,17 +94,31 @@ public class AccountTest {
         assertEquals(initialBalance, account.getBalance());
     }
 
+
+    @Test
+    @DisplayName("Checking Account should reject withdrawal exceeding daily limits")
+    void testDailyLimit(){
+        Currency currency = Currency.getInstance("INR");
+        Account acc=new CheckingAccount("Acc-1", Money.of(new BigDecimal("10000.00"), currency), List.of());
+
+        acc.debit(Money.of(new BigDecimal("4000.00"), currency));
+        acc.debit(Money.of(new BigDecimal("1000.00"), currency));
+        acc.debit(Money.of(new BigDecimal("1.00"), currency));
+
+        assertThrows(DailyLimitExceededException.class, () -> acc.debit(Money.of(new BigDecimal("1.00"), currency)));
+    }
+
     @Test
     @DisplayName("Stress test:50 threads debiting concurrently must not lose money")
     void testConcurrentDebitsAreThreadSafe() throws InterruptedException {
         //Setup: 1 Account with $1000
-        Currency currency = Currency.getInstance("USD");
+        Currency currency = Currency.getInstance("INR");
         Money initialBalance = Money.of(new BigDecimal("10000.00"), currency);
         List<Customer> owners = List.of(
                 new Customer("Sand")
         );
 
-        Account account = new Account("Acc-1", initialBalance, owners);
+        Account account = new CheckingAccount("Acc-1", initialBalance, owners);
 
         // Exception throw by thread
         AtomicReference<Throwable> threadError = new AtomicReference<>();
@@ -137,8 +152,8 @@ public class AccountTest {
 
         executor.shutdown();
 
-        if(threadError.get() != null) {
-            fail("A thread failed during concurrent execution: "+threadError.get().getMessage(),threadError.get());
+        if (threadError.get() != null) {
+            fail("A thread failed during concurrent execution: " + threadError.get().getMessage(), threadError.get());
         }
 
         Money expectedBalance = Money.of(new BigDecimal("9000.00"), currency);

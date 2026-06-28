@@ -2,22 +2,31 @@ package com.bank.domain;
 
 import com.bank.domain.Exceptions.AccountFrozenException;
 import com.bank.domain.Exceptions.InsufficientFundsException;
+import com.bank.domain.Exceptions.DailyLimitExceededException;
 
+import java.math.BigDecimal;
 import java.util.*;
 import java.util.concurrent.locks.ReentrantLock;
+import java.time.LocalDate;
 
-public final class Account {
+public abstract class Account {
     private final String accountNumber;
     private Money balance;
     private AccountStatus status;
     private final List<Customer> owners;
-//    private static final String ALPHABET_ONLY_REGEX = "^[a-zA-Z]+$";
+    //private static final String ALPHABET_ONLY_REGEX = "^[a-zA-Z]+$";
+
+    //Withdrawal limit fields
+    private Money dailyWithdrawalLimit;
+    private LocalDate lastWithdrawalDate;
 
     //Concurrency primitive
-    private final ReentrantLock lock;
+    protected final ReentrantLock lock;
 
 
+    //Constructors
     public Account(String accountNumber, Money initialbalance, List<Customer> owners) {
+        this.balance = Objects.requireNonNull(initialbalance, "amount cannot be null");
         this.accountNumber = Objects.requireNonNull(accountNumber, "account number cannot be null");
 //        if(!accountNumber.matches(ALPHABET_ONLY_REGEX)) {
 //            throw new IllegalArgumentException("Invalid account number '" + accountNumber + "'. It must contain letters only!");
@@ -27,14 +36,20 @@ public final class Account {
         if(initialbalance.isNegative()){
             throw new InsufficientFundsException("Initial balance cannot be negative");
         }
-        this.balance = Objects.requireNonNull(initialbalance, "amount cannot be null");
 
         this.status = AccountStatus.ACTIVE;
 
         // Excellent: Defensive copy to prevent external mutation
         this.owners = new ArrayList<>(Objects.requireNonNull(owners, "owners cannot be null"));
         this.lock = new ReentrantLock();
+
+
+        this.dailyWithdrawalLimit = Money.of(new BigDecimal("0.00"),Currency.getInstance("INR"));
+        this.lastWithdrawalDate = null;
     }
+
+    //Abstract method for subclass to provide their daily limit
+    protected abstract Money getDailyLimit();
 
 
     // --- Core Business Logic (Thread-Safe) ---
@@ -45,6 +60,22 @@ public final class Account {
         try {
             checkAccountIsActive();
 
+            LocalDate today = LocalDate.now();
+            if(lastWithdrawalDate == null || !lastWithdrawalDate.equals(today)){
+                dailyWithdrawalLimit=Money.of(new BigDecimal("0.00"),Currency.getInstance("INR"));
+                lastWithdrawalDate=today;
+            }
+
+            Money newDailyTotal=dailyWithdrawalLimit.add(amount);
+            Money dailyLimit=getDailyLimit();
+
+            if(newDailyTotal.compareTo(dailyLimit) >0 ){
+                throw new DailyLimitExceededException(
+                        "Daily withdrawal limit of "+dailyLimit+" exceeded "+"Current balance is "+dailyWithdrawalLimit
+                );
+            }
+
+            //Insufficient balance check
             if (this.balance.subtract(amount).isNegative()) {
                 throw new InsufficientFundsException(
                         "Insufficient balance"
@@ -52,6 +83,7 @@ public final class Account {
             }
 
             this.balance = this.balance.subtract(amount);
+            this.dailyWithdrawalLimit=newDailyTotal;
         } finally {
             lock.unlock();  // Guaranteed to execute, even if exception is thrown
         }
@@ -101,7 +133,10 @@ public final class Account {
     public void close(){
         lock.lock();
         try {
-            if(!this.balance.isNegative()){
+            if(this.status != AccountStatus.ACTIVE){
+                throw new AccountFrozenException("Only active accounts can be closed account.");
+            }
+            if(this.balance.isNegative()){
                 throw new AccountFrozenException("Can't close the account.");
             }
             this.status = AccountStatus.CLOSED;
@@ -143,12 +178,21 @@ public final class Account {
         }
     }
 
+    public Money getDailyWithdrawalLimit() {
+        lock.lock();
+        try {
+            return this.dailyWithdrawalLimit;
+        }finally {
+            lock.unlock();
+        }
+    }
+
 
 
     // --- Private Helpers ---
 
     private void validatePositiveAmount(Money amount) {
-        if (amount==null || amount.isNegative()) {
+        if (amount==null || amount.isNegative() || amount.isZero()) {
             throw new IllegalArgumentException("amount must be strictly be positive");
         }
     }

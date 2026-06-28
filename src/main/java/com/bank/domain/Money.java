@@ -68,6 +68,14 @@ public final class Money{           //Class is immutable
         return this.amount.compareTo(BigDecimal.ZERO) == 0;
     }
 
+    public boolean isGreaterThan(Money otherMoney){
+        return  this.amount.compareTo(otherMoney.amount) > 0;
+    }
+
+    public int compareTo(Money dailyLimit) {
+        return this.amount.compareTo(dailyLimit.amount);
+    }
+
 
     // --- Getters (Return immutable types, so safe to expose) ---
     public BigDecimal getAmount(){
@@ -109,5 +117,6 @@ public final class Money{           //Class is immutable
     public boolean isPositive() {
         return this.amount.compareTo(BigDecimal.ZERO) > 0;
     }
+
 }
 
