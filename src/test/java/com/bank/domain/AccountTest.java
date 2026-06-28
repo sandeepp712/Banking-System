@@ -26,7 +26,7 @@ public class AccountTest {
                 new Customer("Amar")
         );
 
-        Account account = new CheckingAccount("Acc-1", initialBalance, owners);
+        Account account = new CheckingAccount("Acc-1", initialBalance, owners, ProductTier.BASIC_CHECKING);
         Money ToDebit = Money.of(new BigDecimal("50.00"), currency);
 
         account.debit(ToDebit);
@@ -46,7 +46,7 @@ public class AccountTest {
         List<Customer> owners = List.of(
                 new Customer("Tarun")
         );
-        Account account = new CheckingAccount("Acc-1", initialBalance, owners);
+        Account account = new CheckingAccount("Acc-1", initialBalance, owners, ProductTier.BASIC_CHECKING);
 
         Money ToCredit = Money.of(new BigDecimal("500.00"), currency);
 
@@ -67,7 +67,7 @@ public class AccountTest {
         );
         Money ToDebit = Money.of(new BigDecimal("1000.00"), currency);
 
-        Account account = new CheckingAccount("Acc-3", initialBalance, owners);
+        Account account = new CheckingAccount("Acc-3", initialBalance, owners, ProductTier.BASIC_CHECKING);
 
         assertThrows(InsufficientFundsException.class, () -> account.debit(ToDebit), "Insufficient funds in the your account no." + account.getAccountNumber());
         assertEquals(initialBalance, account.getBalance(), "Balance should remain unchanged after failed debit.");
@@ -82,7 +82,7 @@ public class AccountTest {
                 new Customer("Tarun")
         );
 
-        Account account = new CheckingAccount("Acc-1", initialBalance, owners);
+        Account account = new CheckingAccount("Acc-1", initialBalance, owners, ProductTier.BASIC_CHECKING);
         account.freeze();
 
         //Money to debit from account
@@ -97,15 +97,14 @@ public class AccountTest {
 
     @Test
     @DisplayName("Checking Account should reject withdrawal exceeding daily limits")
-    void testDailyLimit(){
+    void testDailyLimit() {
         Currency currency = Currency.getInstance("INR");
-        Account acc=new CheckingAccount("Acc-1", Money.of(new BigDecimal("10000.00"), currency), List.of());
+        Account acc = new CheckingAccount("Acc-1", Money.of(new BigDecimal("10000.00"), currency), List.of(), ProductTier.BASIC_CHECKING);
 
         acc.debit(Money.of(new BigDecimal("4000.00"), currency));
         acc.debit(Money.of(new BigDecimal("1000.00"), currency));
-        acc.debit(Money.of(new BigDecimal("1.00"), currency));
 
-        assertThrows(DailyLimitExceededException.class, () -> acc.debit(Money.of(new BigDecimal("1.00"), currency)));
+        assertThrows(DailyLimitExceededException.class, () -> acc.debit(Money.of(new BigDecimal("110.00"), currency)));
     }
 
     @Test
@@ -118,7 +117,7 @@ public class AccountTest {
                 new Customer("Sand")
         );
 
-        Account account = new CheckingAccount("Acc-1", initialBalance, owners);
+        Account account = new CheckingAccount("Acc-1", initialBalance, owners, ProductTier.BASIC_CHECKING);
 
         // Exception throw by thread
         AtomicReference<Throwable> threadError = new AtomicReference<>();
@@ -159,6 +158,62 @@ public class AccountTest {
         Money expectedBalance = Money.of(new BigDecimal("9000.00"), currency);
         assertEquals(expectedBalance, account.getBalance(),
                 "Balance mismatch after 100 debits of 10.Expected $9000,got " + account.getBalance());
+    }
+
+    @Test
+    @DisplayName("Account upgrade requires minimum balance")
+    void testAccountUpgrade() throws InsufficientFundsException {
+        Money initialBalance = Money.of(new BigDecimal("52000.00"), Currency.getInstance("INR"));
+        Account account = new SavingsAccount("Acc-1", initialBalance, List.of(), ProductTier.BASIC_SAVING);
+
+        //When: try to upgrade with low balance
+        //then: should throw error
+        assertThrows(IllegalArgumentException.class, () ->
+                account.upgradeTier(ProductTier.PREMIUM_SAVING)
+        );
+
+        //when credit amount to reach min 1,00,000
+        account.credit(Money.of(new BigDecimal("65000.00"), Currency.getInstance("INR")));
+
+        //Then
+        assertDoesNotThrow(() ->
+                account.upgradeTier(ProductTier.PREMIUM_SAVING)
+        );
+
+        assertEquals(ProductTier.PREMIUM_SAVING, account.getProductTier());
+    }
+
+
+    @Test
+    @DisplayName("Changing the Account from Checking to saving")
+    void testAccountFromCheckingToSaving() {
+        Money initialBalance = Money.of(new BigDecimal("2000.00"), Currency.getInstance("INR"));
+        Account acc1 = new CheckingAccount("Acc-1", initialBalance, List.of(), ProductTier.BASIC_CHECKING);
+        Account acc2 = new SavingsAccount("Acc-1", initialBalance, List.of(), ProductTier.BASIC_SAVING);
+
+
+        //When: try to change account from checking to saving
+        //then: should throw error
+        assertThrows(IllegalArgumentException.class, () ->
+                new CheckingAccount("Acc-1", initialBalance, List.of(), ProductTier.BASIC_SAVING)
+        );
+
+        //When: try to change account from saving to checking
+        //then: should throw error
+        assertThrows(IllegalArgumentException.class, () ->
+                new SavingsAccount("Acc-2", initialBalance, List.of(), ProductTier.PREMIUM_CHECKING)
+        );
+
+
+        //When: try to upgrade to other account
+        assertThrows(IllegalArgumentException.class, () ->
+                acc1.upgradeTier(ProductTier.PREMIUM_SAVING)
+        );
+
+        //When:try to upgrad to other account
+        assertThrows(IllegalArgumentException.class, () ->
+                acc2.upgradeTier(ProductTier.PREMIUM_CHECKING)
+        );
     }
 }
 

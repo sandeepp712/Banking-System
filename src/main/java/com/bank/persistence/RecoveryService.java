@@ -75,7 +75,7 @@ public class RecoveryService {
 
     private void ensureAccountExists(InMemoryAccountRepository repo, String accountId) {
         if (repo.findByAccountNumber(accountId).isEmpty()) {
-            Account newAccount = new CheckingAccount(accountId, Money.of(new BigDecimal("0"), Currency.getInstance("INR")), new ArrayList<>());
+            Account newAccount = new CheckingAccount(accountId, Money.of(new BigDecimal("0"), Currency.getInstance("INR")), new ArrayList<>(),ProductTier.BASIC_CHECKING);
 
             repo.save(newAccount);
         }

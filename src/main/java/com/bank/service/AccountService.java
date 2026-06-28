@@ -31,7 +31,7 @@ public class AccountService {
             throw new IllegalArgumentException("Account already exists : " + accountNo);
         }
 
-        Account account = new CheckingAccount(accountNo, initialBalance, owners);
+        Account account = new CheckingAccount(accountNo, initialBalance, owners,ProductTier.BASIC_CHECKING);
         accountRepository.save(account);
 
         return account;

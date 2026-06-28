@@ -37,8 +37,8 @@ public class RecoveryServiceTest{
     @DisplayName("Recovery restores account balance from WAL")
     void testRecoveryRestoreBalanceFromWAL() throws Exception {
         Currency currency = Currency.getInstance("INR");
-        Account account1=new CheckingAccount("Acc-1",Money.of(new BigDecimal("0.00"),Currency.getInstance("INR")),List.of(new Customer("Amar")));
-        Account account2=new CheckingAccount("Acc-2",Money.of(new BigDecimal("0.00"),Currency.getInstance("INR")),List.of(new Customer("Deep")));
+        Account account1=new CheckingAccount("Acc-1",Money.of(new BigDecimal("0.00"),Currency.getInstance("INR")),List.of(new Customer("Amar")),ProductTier.BASIC_CHECKING);
+        Account account2=new CheckingAccount("Acc-2",Money.of(new BigDecimal("0.00"),Currency.getInstance("INR")),List.of(new Customer("Deep")),ProductTier.BASIC_CHECKING);
 
 
         // Transaction 1: Deposit $1000 to Acc-1 (from SYSTEM)

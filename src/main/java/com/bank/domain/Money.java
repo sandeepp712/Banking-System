@@ -71,6 +71,7 @@ public final class Money{           //Class is immutable
     public boolean isGreaterThan(Money otherMoney){
         return  this.amount.compareTo(otherMoney.amount) > 0;
     }
+    public boolean isLessThan(Money otherMoney){return this.amount.compareTo(otherMoney.amount) < 0;}
 
     public int compareTo(Money dailyLimit) {
         return this.amount.compareTo(dailyLimit.amount);

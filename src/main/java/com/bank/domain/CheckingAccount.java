@@ -1,23 +1,29 @@
 package com.bank.domain;
 
-import com.bank.domain.Exceptions.DailyLimitExceededException;
-
-import java.math.BigDecimal;
-import java.util.Currency;
 import java.util.List;
+import java.util.Set;
 
 public class CheckingAccount extends Account{
-    private static final Money DAILY_LIMIT=Money.of(
-            new BigDecimal("5000.00"),
-            Currency.getInstance("INR")
+    private static final Set<ProductTier>  ALLOWED_TIERS= Set.of(
+            ProductTier.BASIC_CHECKING,
+            ProductTier.PREMIUM_CHECKING
     );
 
-    public CheckingAccount(String accountNumber, Money initialbalance, List<Customer> owners) {
-        super(accountNumber, initialbalance, owners);
+    public CheckingAccount(String accountNumber, Money initialBalance, List<Customer> owners,ProductTier productTier) {
+        super(accountNumber, initialBalance, owners,productTier);
+    }
+
+    public CheckingAccount(String accountNumber, Money initialBalance, List<Customer> owners) {
+        super(accountNumber,initialBalance,owners,ProductTier.BASIC_CHECKING);
     }
 
     @Override
     protected Money getDailyLimit() {
-        return DAILY_LIMIT;
+        return this.getProductTier().getDailyLimit();
+    }
+
+    @Override
+    protected boolean isValidTier(ProductTier  productTier) {
+        return ALLOWED_TIERS.contains(productTier);
     }
 }
