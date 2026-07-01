@@ -43,7 +43,7 @@ public final class Transaction {
     public String getIdempotencyKey() {return this.idempotencyKey;}
 
 
-    public Transaction withStatus(TransactionStatus newStatus) {
+    public Transaction newStatus(TransactionStatus newStatus) {
         //1 Optimization: if status is already the same, return the same object
         if(this.status == newStatus){
             return this;
@@ -59,11 +59,11 @@ public final class Transaction {
 
     //Convenience: commit and fail
     public Transaction commited(){
-        return withStatus(TransactionStatus.COMMITTED);
+        return newStatus(TransactionStatus.COMMITTED);
     }
 
     public Transaction failed(){
-        return withStatus(TransactionStatus.FAILED);
+        return newStatus(TransactionStatus.FAILED);
     }
 
 
@@ -90,7 +90,7 @@ public final class Transaction {
         public Builder idempotencyKey(String key){this.idempotencyKey=key;return this;}
 
 
-        //Auto generated transactionID and idempotencyKey if not provided
+        //Auto generated transactionID
         public Transaction build(){
             if(transactionId==null) transactionId=UUID.randomUUID().toString();
             if(timestamp==null) timestamp=Instant.now();

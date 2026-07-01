@@ -6,5 +6,5 @@ import java.util.Optional;
 public interface AccountRepository {
     void save(Account account);
     Optional<Account> findByAccountNumber(String accountNumber);
-    Collection<Account> findAll();
+    Collection<Account> getAllAccounts();
 }

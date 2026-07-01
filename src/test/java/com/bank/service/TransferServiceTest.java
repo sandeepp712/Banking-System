@@ -32,11 +32,9 @@ public class TransferServiceTest {
         repository = new InMemoryAccountRepository();
         TransactionLogger logger = new TransactionLogger("data/transaction.log");
         idempotencyService = new IdempotencyService();
-        idempotencyService.clear();
-
 
         transferService = new TransferService(repository, logger, idempotencyService); // ✅ Inject repository
-        usd = Currency.getInstance("USD");
+        usd = Currency.getInstance("INR");
 
         // Setup standard accounts for testing
         repository.save(new CheckingAccount("Acc-1", Money.of(new BigDecimal("1000.00"), usd), List.of(new Customer("Amar")),ProductTier.BASIC_CHECKING));
@@ -127,24 +125,25 @@ public class TransferServiceTest {
     void duplicateTransferWithSameIdempotencyKey() {
         Money transferAmount = Money.of(new BigDecimal("100.00"), usd);
         String key = UUID.randomUUID().toString();
-        System.out.println(key);
+//        System.out.println(key);
 
         //When
         Transaction first = transferService.transfer("Acc-1", "Acc-2", transferAmount, key);
 
         // Then: The balances should update
+        assertEquals(TransactionStatus.COMMITTED, first.getStatus());
         assertEquals(Money.of(new BigDecimal("900.00"), usd), repository.findByAccountNumber("Acc-1").get().getBalance());
         assertEquals(Money.of(new BigDecimal("1100.00"), usd), repository.findByAccountNumber("Acc-2").get().getBalance());
 
-        // When: We try to process the EXACT SAME transfer again (simulating a network retry)
-        // Then: It should throw DuplicateTransactionException and balances should NOT change again
-        assertThrows(DuplicateTransactionException.class, () -> {
-            transferService.transfer("Acc-1", "Acc-2", transferAmount, key);
-        });
+
+        Transaction second = transferService.transfer("Acc-1", "Acc-2", transferAmount, key);
+
+        //Should return same transaction (by ID);
+        assertEquals(first.getTransactionId(), second.getTransactionId(),"Duplicate request should return the same transaction id");
+        assertEquals(TransactionStatus.COMMITTED, second.getStatus());
 
         // Then: The balances should update
         assertEquals(Money.of(new BigDecimal("900.00"), usd), repository.findByAccountNumber("Acc-1").get().getBalance());
         assertEquals(Money.of(new BigDecimal("1100.00"), usd), repository.findByAccountNumber("Acc-2").get().getBalance());
     }
-
 }

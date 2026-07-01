@@ -1,5 +1,10 @@
 package com.bank.service;
 
+import com.bank.domain.Transaction;
+import com.bank.domain.TransactionStatus;
+
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -14,28 +19,34 @@ public class IdempotencyService {
      * Prevents duplicate processing of transaction due to network retries.
      * Uses a thread-safe set to track processed idempotency.
      */
-    private final Set<String> processedKeys = ConcurrentHashMap.newKeySet();
+    private final Map<String, Transaction> transaction_cache = new ConcurrentHashMap<>();
 
     /**
      * Checks if a transaction with this key is process or not.
-     * @param idempotencyKey
+     * @param key
      * @return
      */
-    public boolean isAlreadyProcessed(String idempotencyKey){
-        return processedKeys.contains(idempotencyKey);
+    public Optional<Transaction> getExisting(String key) {
+        return Optional.ofNullable(transaction_cache.get(key));
     }
+
 
     /**
      * Marks a transaction key as processed
-     * @param idempotencyKey
+     * @param key
      */
-    public void markAsProcessed(String idempotencyKey){
-        processedKeys.add(idempotencyKey);
+    public void put(String key, Transaction transaction) {
+        transaction_cache.put(key, transaction);
+    }
+
+    public void remove(String key) {
+        transaction_cache.remove(key);
     }
 
     // For testing cleanup
-    public void clear() {
-        processedKeys.clear();
+    public boolean isCommited(String key) {
+        Transaction transaction = transaction_cache.get(key);
+        return transaction != null && transaction.getStatus()== TransactionStatus.COMMITTED;
     }
 
 }

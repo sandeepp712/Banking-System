@@ -17,7 +17,7 @@ public class AccountService {
 
     public static final String SYSTEM_ACCOUNT = "SYSTEM";
 
-    public AccountService(AccountRepository accountRepository, TransactionLogger logger,IdempotencyService idempotencyService) {
+    public AccountService(AccountRepository accountRepository, TransactionLogger logger, IdempotencyService idempotencyService) {
         this.accountRepository = accountRepository;
         this.logger = logger;
         this.idempotencyService = idempotencyService;
@@ -26,19 +26,31 @@ public class AccountService {
     /**
      * Creates a new account and saves it to the repository.
      */
-    public Account createAccount(String accountNo, Money initialBalance, List<Customer> owners) {
+    public Account createAccount(String accountNo, Money initialBalance, List<Customer> owners, ProductTier productTier) {
         if (accountRepository.findByAccountNumber(accountNo).isPresent()) {
             throw new IllegalArgumentException("Account already exists : " + accountNo);
         }
 
-        Account account = new CheckingAccount(accountNo, initialBalance, owners,ProductTier.BASIC_CHECKING);
-        accountRepository.save(account);
+        Account newAccount;
 
-        return account;
+        switch (productTier) {
+            case BASIC_CHECKING, PREMIUM_CHECKING -> {
+                newAccount = new CheckingAccount(accountNo, initialBalance, owners);
+            }
+            case BASIC_SAVING, PREMIUM_SAVING -> {
+                newAccount = new SavingsAccount(accountNo, initialBalance, owners);
+            }
+            default -> {
+                throw new IllegalArgumentException("Unknown product tier : " + productTier);
+            }
+        }
+        accountRepository.save(newAccount);
+        return newAccount;
     }
 
     /**
      * To get the particular account is present or not
+     *
      * @param id
      * @return
      */
@@ -48,47 +60,88 @@ public class AccountService {
 
     /**
      * To return all account
+     *
      * @return
      */
     public Collection<Account> getAllAccounts() {
-        return accountRepository.findAll();
+        return accountRepository.getAllAccounts();
     }
 
 
     /**
      * Deposits money into an account.
+     *
      * @return The Transaction record representing this deposit.
      */
     public Transaction deposit(String accountNumber, Money amount, String idempotencyKey) {
-        if(idempotencyService.isAlreadyProcessed(idempotencyKey)){
-            throw new DuplicateTransactionException("Transaction already processed :" + idempotencyKey);
-        }
-
         Account account = accountRepository.findByAccountNumber(accountNumber)
                 .orElseThrow(() -> new IllegalArgumentException("Account not found : " + accountNumber));
 
-        //Apply the credit to self account
-        account.credit(amount);
-        accountRepository.save(account);
-        idempotencyService.markAsProcessed(idempotencyKey);
+        if (account.getStatus() != AccountStatus.ACTIVE) {
+            throw new IllegalStateException("Account status is not ACTIVE");
+        }
+
+        //1 Check the idempotency
+        Optional<Transaction> existing = idempotencyService.getExisting(idempotencyKey);
+        if (existing.isPresent()) {
+            Transaction tx = existing.get();
+            if (tx.getStatus() == TransactionStatus.COMMITTED) {
+                return tx;
+            } else if (tx.getStatus() == TransactionStatus.PENDING) {
+                throw new IllegalStateException("Pending transaction already processing : " + tx.getTransactionId());
+            } else if (tx.getStatus() == TransactionStatus.FAILED) {
+                throw new IllegalStateException("Transaction failed : " + tx.getTransactionId());
+            }
+        }
 
 
-        Transaction tx = Transaction.builder()
+        //Creating transaction
+        Transaction pending = Transaction.builder()
+                .idempotencyKey(idempotencyKey)
                 .fromAccountId(SYSTEM_ACCOUNT)
                 .toAccountId(accountNumber)
                 .amount(amount)
-                .status(TransactionStatus.COMMITTED)
-                .idempotencyKey(idempotencyKey)
+                .timestamp(Instant.now())
+                .status(TransactionStatus.PENDING)
                 .build();
 
+
+        //2 creating pending transaction in cache
+        idempotencyService.put(idempotencyKey, pending);
+
+
+        //3 Writing in WAL log
         try {
-            logger.logTransaction(tx);
+            logger.logTransaction(pending);
+        } catch (Exception e) {
+            Thread.currentThread().interrupt();
+            //If logging fail,remove the cache and throw
+            idempotencyService.remove(idempotencyKey);
+            throw new RuntimeException("Failed to log Pending transaction");
+        }
+
+
+        //4 Apply the credit to self account
+        account.credit(amount);
+
+
+        //5 Create committed transaction
+        Transaction completedTransaction = pending.commited();
+
+
+        //6 Write committed transaction in WAL
+        try {
+            logger.logTransaction(completedTransaction);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new RuntimeException("Deposit succeeded, but logging failed due to system interruption.", e);
         }
 
-        return tx;
+        //7 update cache to committed
+        idempotencyService.put(idempotencyKey, completedTransaction);
+
+        //8 return completed transaction
+        return completedTransaction;
     }
 
     /**
@@ -97,35 +150,58 @@ public class AccountService {
      * @return The Transaction record representing this withdrawal.
      */
     public Transaction withdraw(String accountNumber, Money amount, String idempotencyKey) {
-
-        if(idempotencyService.isAlreadyProcessed(idempotencyKey)){
-            throw new DuplicateTransactionException("Transaction already processed :" + idempotencyKey);
-        }
-
         Account account = accountRepository.findByAccountNumber(accountNumber)
                 .orElseThrow(() -> new IllegalArgumentException("Account not found : " + accountNumber));
 
-        account.debit(amount);
+        if (account.getStatus() != AccountStatus.ACTIVE) {
+            throw new IllegalStateException("Account status is not ACTIVE");
+        }
 
-        accountRepository.save(account);
-        idempotencyService.markAsProcessed(idempotencyKey);
+        Optional<Transaction> existing = idempotencyService.getExisting(idempotencyKey);
+        if (existing.isPresent()) {
+            Transaction tx = existing.get();
+            if (tx.getStatus() == TransactionStatus.COMMITTED) {
+                return tx;
+            } else if (tx.getStatus() == TransactionStatus.PENDING) {
+                throw new IllegalStateException("Pending transaction already processing : " + tx.getTransactionId());
+            } else if (tx.getStatus() == TransactionStatus.FAILED) {
+                throw new IllegalStateException("Transaction failed : " + tx.getTransactionId());
+            }
+        }
 
         Transaction tx = Transaction.builder()
-                .fromAccountId(SYSTEM_ACCOUNT)
-                .toAccountId(accountNumber)
-                .amount(amount)
-                .status(TransactionStatus.COMMITTED)
                 .idempotencyKey(idempotencyKey)
+                .fromAccountId(accountNumber)
+                .toAccountId(SYSTEM_ACCOUNT)
+                .amount(amount)
+                .timestamp(Instant.now())
+                .status(TransactionStatus.PENDING)
                 .build();
+
+        idempotencyService.put(idempotencyKey, tx);
 
         try {
             logger.logTransaction(tx);
+        } catch (Exception e) {
+            Thread.currentThread().interrupt();
+            idempotencyService.remove(idempotencyKey);
+            throw new RuntimeException("Failed to log Pending transaction");
+        }
+
+        account.debit(amount);
+
+        Transaction completedTransaction = tx.commited();
+
+        try {
+            logger.logTransaction(completedTransaction);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new RuntimeException("Deposit succeeded, but logging failed due to system interruption.", e);
         }
 
-        return tx;
+        idempotencyService.put(idempotencyKey, completedTransaction);
+
+        return completedTransaction;
     }
 
 }

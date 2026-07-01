@@ -12,13 +12,17 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Currency;
 import java.util.List;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class RecoveryServiceTest{
     private RecoveryService recoveryService;
-    private final String testLogFile="target/data/test_transaction_log.log";
+    private final String testLogFile="data/test_transaction_log.log";
+    private final String walFile = "data/snap_test_wal.log";
     private TransactionLogger logger;
+    SnapshotManager snapshotManager;
+    InMemoryAccountRepository accountRepository;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -26,6 +30,7 @@ public class RecoveryServiceTest{
         Files.createDirectories(Paths.get(testLogFile).getParent());
         logger = new TransactionLogger(testLogFile);
         recoveryService = new RecoveryService();
+        snapshotManager=new SnapshotManager(accountRepository,logger,walFile);
     }
 
     @AfterEach
@@ -39,6 +44,9 @@ public class RecoveryServiceTest{
         Currency currency = Currency.getInstance("INR");
         Account account1=new CheckingAccount("Acc-1",Money.of(new BigDecimal("0.00"),Currency.getInstance("INR")),List.of(new Customer("Amar")),ProductTier.BASIC_CHECKING);
         Account account2=new CheckingAccount("Acc-2",Money.of(new BigDecimal("0.00"),Currency.getInstance("INR")),List.of(new Customer("Deep")),ProductTier.BASIC_CHECKING);
+        String key= UUID.randomUUID().toString();
+        String key2= UUID.randomUUID().toString();
+        String key3= UUID.randomUUID().toString();
 
 
         // Transaction 1: Deposit $1000 to Acc-1 (from SYSTEM)
@@ -47,6 +55,7 @@ public class RecoveryServiceTest{
                 .toAccountId("Acc-1")
                 .amount(Money.of(new BigDecimal("1000.00"), currency))
                 .status(TransactionStatus.COMMITTED)
+                .idempotencyKey(key)
                 .build();
 
         // Transaction 2: Deposit $1000 to Acc-2 (from SYSTEM)
@@ -55,6 +64,7 @@ public class RecoveryServiceTest{
                 .toAccountId("Acc-2")
                 .amount(Money.of(new BigDecimal("1000.00"), currency))
                 .status(TransactionStatus.COMMITTED)
+                .idempotencyKey(key2)
                 .build();
 
         // Transaction 3: Transfer $100 from Acc-1 to Acc-2
@@ -63,6 +73,7 @@ public class RecoveryServiceTest{
                 .toAccountId("Acc-2")
                 .amount(Money.of(new BigDecimal("100.00"), currency))
                 .status(TransactionStatus.COMMITTED)
+                .idempotencyKey(key3)
                 .build();
 
 
@@ -77,7 +88,7 @@ public class RecoveryServiceTest{
 
 
         //Recovery
-        AccountRepository recoveredRepo= recoveryService.recover(testLogFile);
+        AccountRepository recoveredRepo= recoveryService.recover(testLogFile,walFile);
 
         Account acc1=recoveredRepo.findByAccountNumber("Acc-1").get();
         Account acc2=recoveredRepo.findByAccountNumber("Acc-2").get();

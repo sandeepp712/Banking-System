@@ -5,10 +5,9 @@ import com.bank.domain.*;
 import com.bank.persistence.TransactionLogger;
 import com.bank.service.Exceptions.DuplicateTransactionException;
 
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Objects;
+import javax.management.RuntimeMBeanException;
+import java.time.Instant;
+import java.util.*;
 
 
 public class TransferService {
@@ -28,25 +27,30 @@ public class TransferService {
         Objects.requireNonNull(amount, "amount cannot be null");
         Objects.requireNonNull(idempotencyKey,"idempotencyKey cannot be null");
 
-        if(idempotencyService.isAlreadyProcessed(idempotencyKey)){
-            throw new DuplicateTransactionException("The idempotency key has already been processed"+idempotencyKey);
-        }
-
-
         if (amount.isNegative() || amount.isZero()) {
             throw new IllegalArgumentException("Amount must be positive");
         }
         if (fromId.equals(toId)) {
             throw new IllegalArgumentException("Cannot transfer from same account");
         }
+
         // 2. Fetch accounts
         Account from = accountRepository.findByAccountNumber(fromId)
                 .orElseThrow(() -> new IllegalArgumentException("From account not found"));
         Account to = accountRepository.findByAccountNumber(toId)
                 .orElseThrow(() -> new IllegalArgumentException("To account not found"));
 
-
-
+        Optional<Transaction> existing = idempotencyService.getExisting(idempotencyKey);
+        if (existing.isPresent()) {
+            Transaction tx = existing.get();
+            if(tx.getStatus()==TransactionStatus.COMMITTED){
+                return tx;
+            } else if(tx.getStatus() == TransactionStatus.PENDING){
+                throw new IllegalStateException("Transaction has already been processing. Please wait.");
+            } else if (tx.getStatus()==TransactionStatus.FAILED) {
+                throw new IllegalStateException("Transaction attempt failed. Please try again later.");
+            }
+        }
 
         //use of lockOrdering helper
         List<Account> orderedAccount=LockOrderingHelper.getOrderedAccounts(from,to);
@@ -54,18 +58,33 @@ public class TransferService {
         Account firstAccount = orderedAccount.get(0);
         Account secondAccount = orderedAccount.get(1);
 
+        Transaction pending=Transaction.builder()
+                .idempotencyKey(idempotencyKey)
+                .fromAccountId(fromId)
+                .toAccountId(toId)
+                .amount(amount)
+                .timestamp(Instant.now())
+                .status(TransactionStatus.PENDING)
+                .build();
+
+        idempotencyService.put(idempotencyKey,pending);
+
+        try {
+            logger.logTransaction(pending);
+        }catch (InterruptedException e){
+            Thread.currentThread().interrupt();
+            //If logging fails,remove from cache and throw
+            idempotencyService.remove(idempotencyKey);
+            throw new RuntimeException("Failed to log Pending transaction");
+        }
+
+        //Apply business logic with locking
         firstAccount.lock();
         try {
             secondAccount.lock();
             try {
                 from.debit(amount);
                 to.credit(amount);
-
-                accountRepository.save(firstAccount);
-                accountRepository.save(secondAccount);
-
-                //Mark as processed Only after the money has successfully moved
-                idempotencyService.markAsProcessed(idempotencyKey);
             }finally {
                 secondAccount.unlock();
             }
@@ -73,22 +92,20 @@ public class TransferService {
             firstAccount.unlock();
         }
 
+        // Write commited transaction to WAL
+        Transaction committed=pending.commited();
 
-        Transaction tx = Transaction.builder()
-                .idempotencyKey(idempotencyKey)
-                .fromAccountId(fromId)
-                .toAccountId(toId)
-                .amount(amount)
-                .status(TransactionStatus.COMMITTED)
-                .build();
 
         try {
-            logger.logTransaction(tx);
+            logger.logTransaction(committed);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new RuntimeException("Deposit succeeded, but logging failed due to system interruption.", e);
         }
 
-        return tx;
+        // update cache to committed
+        idempotencyService.put(idempotencyKey,committed);
+
+        return committed;
     }
 }

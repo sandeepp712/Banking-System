@@ -12,18 +12,59 @@ public class RecoveryService {
 
     private static final String SYSTEM_ACCOUNT = "SYSTEM";
 
-    public AccountRepository recover(String logFilePath) throws Exception {
+    public AccountRepository recover(String logFilePath, String snapshotDirPath) throws Exception {
         InMemoryAccountRepository repo = new InMemoryAccountRepository();
-        Path path = Paths.get(logFilePath);
 
-        if (!Files.exists(path)) {
+        long minSequenceToReplay = 0;
+
+
+        //1 Try to load the latest snapshot
+        Path snapshotDir = Paths.get(snapshotDirPath);
+        if (Files.exists(snapshotDir)) {
+            Optional<Path> latestSnapshot = Files.list(snapshotDir)
+                    .filter(p -> p.getFileName().toString().startsWith("snapshot"))
+                    .max(Comparator.comparing(p -> {
+                        String name = p.getParent().getFileName().toString();
+                        return Long.parseLong(name.replace("snapshot", "").replace(".json", ""));
+                    }));
+
+            if (latestSnapshot.isPresent()) {
+                System.out.println("Loading snapshot: " + latestSnapshot.get().getFileName());
+                String json = Files.readString(latestSnapshot.get());
+
+                //Extract checkpoint_seq
+                int seqStart = json.indexOf("\"checkpoint\":") + 17;
+                int seqEnd = json.indexOf(",", seqStart);
+                minSequenceToReplay = Long.parseLong(json.substring(seqStart, seqEnd));
+
+            }
+        }
+
+
+        //2 Replay the WAL(Filtering based on snapshot)
+        Path walPath = Paths.get(logFilePath);
+        if (!Files.exists(walPath)) {
             return repo;        //No log file, fresh start
         }
 
-        List<String> lines = Files.readAllLines(path);
-        int recoveredCount=0;
+        List<String> lines = Files.readAllLines(walPath);
+        int recoveredCount = 0;
 
         for (String line : lines) {
+
+            if (line.trim().isEmpty()) continue;
+
+            // Extract sequence_No from the JSON line
+            int seqStart = line.indexOf("\"sequence_No\":\"") + 15;
+            int seqEnd = line.indexOf("\"", seqStart);
+            long currentSeq = Long.parseLong(line.substring(seqStart, seqEnd));
+
+            // ✅ THE FILTER: Skip transactions already captured in the snapshot!
+            if (currentSeq <= minSequenceToReplay) {
+                continue;
+            }
+
+
             Transaction tx = parseJson(line);
 
             if (tx.getStatus() != TransactionStatus.COMMITTED) {
@@ -31,8 +72,6 @@ public class RecoveryService {
             }
 
             try {
-
-
                 String fromId = tx.getFromAccountId();
                 String toId = tx.getToAccountId();
                 Money amount = tx.getAmount();
@@ -69,13 +108,13 @@ public class RecoveryService {
             }
         }
 
-        System.out.println("Recovery complete. Replayed " + recoveredCount + " transactions.");
+        System.out.println("Recovery complete. Skipped up to seq" + minSequenceToReplay + ". Replayed " + recoveredCount + " new transactions.");
         return repo;
     }
 
     private void ensureAccountExists(InMemoryAccountRepository repo, String accountId) {
         if (repo.findByAccountNumber(accountId).isEmpty()) {
-            Account newAccount = new CheckingAccount(accountId, Money.of(new BigDecimal("0"), Currency.getInstance("INR")), new ArrayList<>(),ProductTier.BASIC_CHECKING);
+            Account newAccount = new CheckingAccount(accountId, Money.of(new BigDecimal("0"), Currency.getInstance("INR")), new ArrayList<>(), ProductTier.BASIC_CHECKING);
 
             repo.save(newAccount);
         }

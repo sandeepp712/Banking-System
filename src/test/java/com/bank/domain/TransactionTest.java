@@ -18,7 +18,8 @@ public class TransactionTest {
     @Test
     @DisplayName("testTransactionIsImmutable() check the trans is immutable")
     void testTransactionIsImmutable() {
-        Transaction a = Transaction.builder().fromAccountId("abc").toAccountId("def").amount(amount).build();
+        String key=UUID.randomUUID().toString();
+        Transaction a = Transaction.builder().fromAccountId("abc").toAccountId("def").amount(amount).idempotencyKey(key).build();
 
         // 2. Capture original state
         String originalTxId = a.getTransactionId();
@@ -30,7 +31,7 @@ public class TransactionTest {
         TransactionStatus originalStatus = a.getStatus();
 
         // 3. Attempt to modify withStatus - should return a new object
-        Transaction committed= a.withStatus(TransactionStatus.COMMITTED);
+        Transaction committed= a.newStatus(TransactionStatus.COMMITTED);
         assertNotSame(a,committed,"withStatus must return a new instance");
         assertEquals(TransactionStatus.COMMITTED,committed.getStatus(),"new object has update status");
 
@@ -47,7 +48,8 @@ public class TransactionTest {
     @Test
     @DisplayName("Builder auto-generates ID and IdempotencyKey if not provided")
     void testBuilderAutoGeneration() {
-        Transaction t = Transaction.builder().fromAccountId("abc").toAccountId("def").amount(amount).build();
+        String key=UUID.randomUUID().toString();
+        Transaction t = Transaction.builder().fromAccountId("abc").toAccountId("def").amount(amount).idempotencyKey(key).build();
         String originalTxId = t.getTransactionId();
         String originalIdemKey = t.getIdempotencyKey();
 
@@ -59,21 +61,25 @@ public class TransactionTest {
     @Test
     @DisplayName("Can't create transaction with same from and to account")
     void testCannotTransferToSelf() {
+        String key=UUID.randomUUID().toString();
         assertThrows(IllegalArgumentException.class, () -> {
-            Transaction.builder().fromAccountId("abc").toAccountId("abc").amount(amount).build();
+            Transaction.builder().fromAccountId("abc").toAccountId("abc").amount(amount).idempotencyKey(key).build();
         });
     }
 
     @Test
     @DisplayName("Can't create with negative and null amount")
     void testCannotTransferToNull() {
+        String key=UUID.randomUUID().toString();
+
         assertThrows(NullPointerException.class, () -> {
-            Transaction.builder().fromAccountId("abc").toAccountId(null).build();
+            Transaction.builder().fromAccountId("abc").toAccountId(null).idempotencyKey(key).build();
         });
 
         Money userA=Money.of(new BigDecimal("-100.00"), currency);
+
         assertThrows(IllegalArgumentException.class, () -> {
-            Transaction.builder().fromAccountId("abc").toAccountId("def").amount(userA).build();
+            Transaction.builder().fromAccountId("abc").toAccountId("def").amount(userA).idempotencyKey(key).build();
         });
     }
 }

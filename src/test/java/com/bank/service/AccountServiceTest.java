@@ -20,16 +20,17 @@ import static org.junit.jupiter.api.Assertions.*;
 public class AccountServiceTest {
     private AccountService accountService;
     private AccountRepository accountRepository;
-    private IdempotencyService idempotencyService;
     private Currency usd;
     private List<Customer> owners;
+    private static final ProductTier productTier1=ProductTier.BASIC_SAVING;
 
     @BeforeEach
     void setUp() throws IOException {
         accountRepository = new InMemoryAccountRepository();
-        TransactionLogger logger=new TransactionLogger("data/transaction.log");
-        accountService = new AccountService(accountRepository,logger,idempotencyService);
-        usd = Currency.getInstance("USD");
+        TransactionLogger logger = new TransactionLogger("data/transaction.log");
+        IdempotencyService idempotencyService = new IdempotencyService();
+        accountService = new AccountService(accountRepository, logger, idempotencyService);
+        usd = Currency.getInstance("INR");
         owners = List.of(new Customer("TestUser"));
     }
 
@@ -43,7 +44,7 @@ public class AccountServiceTest {
         Money initialBalance = Money.of(new BigDecimal("100.00"), usd);
 
         //When
-        Account account = accountService.createAccount(accountNo, initialBalance, owners);
+        Account account = accountService.createAccount(accountNo, initialBalance, owners, productTier1);
 
         //Then
         assertNotNull(account);
@@ -63,10 +64,10 @@ public class AccountServiceTest {
         Money initialBalance = Money.of(new BigDecimal("100.00"), usd);
 
         //when
-        accountService.createAccount(accountNo, initialBalance, owners);
+        accountService.createAccount(accountNo, initialBalance, owners, productTier1);
 
         //then
-        assertThrows(IllegalArgumentException.class, () -> accountService.createAccount(accountNo, initialBalance, owners), "" +
+        assertThrows(IllegalArgumentException.class, () -> accountService.createAccount(accountNo, initialBalance, owners, productTier1),
                 "Account number already exists");
 
     }
@@ -78,7 +79,7 @@ public class AccountServiceTest {
         // Given
         String accountNo = "ACC-456";
         Money initialBalance = Money.of(new BigDecimal("50.00"), usd);
-        accountService.createAccount(accountNo, initialBalance, owners);
+        accountService.createAccount(accountNo, initialBalance, owners, productTier1);
 
         // When
         Account account = accountService.getAccount(accountNo);
@@ -94,7 +95,7 @@ public class AccountServiceTest {
         // Given
         String accountNo = "ACC-DEP";
         Money initialBalance = Money.of(new BigDecimal("100.00"), usd);
-        accountService.createAccount(accountNo, initialBalance, owners);
+        accountService.createAccount(accountNo, initialBalance, owners, productTier1);
 
         Money depositAmount = Money.of(new BigDecimal("50.00"), usd);
         String idempotencyKey = UUID.randomUUID().toString();
@@ -118,17 +119,17 @@ public class AccountServiceTest {
 
 
     @Test
-    @DisplayName("Withdraw successfully withdrawmoney from account and return commited transaction")
+    @DisplayName("Withdraw successfully withdrawn from account and return commited transaction")
     void testWithdrawSuccess() {
         String accountNo = "ACC-456";
         Money initialBalance = Money.of(new BigDecimal("100.00"), usd);
-        accountService.createAccount(accountNo, initialBalance, owners);
+        accountService.createAccount(accountNo, initialBalance, owners, productTier1);
 
         Money withdrawAmount = Money.of(new BigDecimal("50.00"), usd);
         String idempotencyKey = UUID.randomUUID().toString();
 
         //When
-        Transaction tx= accountService.withdraw(accountNo, withdrawAmount, idempotencyKey);
+        Transaction tx = accountService.withdraw(accountNo, withdrawAmount, idempotencyKey);
 
         //Then
         assertNotNull(tx);
@@ -160,7 +161,7 @@ public class AccountServiceTest {
         // Given
         String accountNo = "ACC-LOW";
         Money initialBalance = Money.of(new BigDecimal("50.00"), usd);
-        accountService.createAccount(accountNo, initialBalance, owners);
+        accountService.createAccount(accountNo, initialBalance, owners, productTier1);
 
         Money withdrawAmount = Money.of(new BigDecimal("100.00"), usd);
         String idempotencyKey = UUID.randomUUID().toString();
